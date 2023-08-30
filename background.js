@@ -110,6 +110,7 @@ class Recorder {
       this.input.disconnect();
       this.processor.disconnect();
       delete this.processor;
+      this.worker.postMessage({ command: "disconnect" });
       this.worker.postMessage({ command: "finish" });
     }
   }
@@ -152,6 +153,7 @@ class Recorder {
       },
       options: this.options
     });
+    // this.worker.postMessage({ command: "connect" });
   }
 
   onEncoderLoading(recorder, encoding) {}
@@ -291,7 +293,7 @@ const startCapture = function() {
         chrome.storage.sync.get({
           maxTime: 1200000,
           muteTab: false,
-          format: "mp3",
+          format: "wav",
           quality: 192,
           limitRemoved: false
         }, (options) => {

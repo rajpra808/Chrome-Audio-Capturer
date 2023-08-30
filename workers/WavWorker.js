@@ -1,5 +1,6 @@
 importScripts("/../encoders/WavEncoder.min.js");
-
+let webSocket = null;
+let messageQueue = [];
 let sampleRate = 44100,
     numChannels = 2,
     options = undefined,
@@ -11,6 +12,53 @@ let sampleRate = 44100,
 function error(message) {
   self.postMessage({ command: "error", message: "wav: " + message });
 }
+
+function keepAlive() {
+  const keepAliveIntervalId = setInterval(
+    () => {
+      if (webSocket) {
+        webSocket.send('keepalive');
+      } else {
+        clearInterval(keepAliveIntervalId);
+      }
+    },
+    // Set the interval to 20 seconds to prevent the service worker from becoming inactive.
+    20 * 1000 
+  );
+}
+
+function connect() {
+  webSocket = new WebSocket('ws://localhost:3000');
+
+  webSocket.onopen = (event) => {
+    console.log('websocket open');
+    keepAlive();
+
+    // Send any buffered messages
+    while (messageQueue.length > 0 && webSocket.readyState === WebSocket.OPEN) {
+      const bufferedMessage = messageQueue.shift();
+      webSocket.send(bufferedMessage);
+      // Handle encoding or other logic here
+    }
+  };
+
+  webSocket.onmessage = (event) => {
+    console.log(`websocket received message: ${event.data}`);
+  };
+
+  webSocket.onclose = (event) => {
+    console.log('websocket connection closed');
+    webSocket = null;
+  };
+}
+
+function disconnect() {
+  if (webSocket == null) {
+    return;
+  }
+  webSocket.close();
+}
+
 
 function init(data) {
   sampleRate = data.config.sampleRate;
@@ -34,6 +82,13 @@ function start(bufferSize) {
 }
 
 function record(buffer) {
+  if (webSocket.readyState === WebSocket.OPEN) {
+    webSocket.send(buffer[0]); // sending only one channel 
+  } else {
+    console.log("WebSocket is still connecting or closed. Buffer added to queue.");
+    messageQueue.push(buffer[0]);
+  }
+
   if (bufferCount++ < maxBuffers)
     if (encoder)
       encoder.encode(buffer);
@@ -77,12 +132,16 @@ function cleanup() {
 self.onmessage = function(event) {
   var data = event.data;
   switch (data.command) {
-    case "init":    init(data);                 break;
+    case "init":                
+        console.log("Initiating worker!")
+        connect();
+        init(data);                 
+        break;
     case "options": setOptions(data.options);   break;
     case "start":   start(data.bufferSize);     break;
     case "record":  record(data.buffer);        break;
-    case "finish":  finish();                   break;
-    case "cancel":  cleanup();
+    case "finish":  disconnect(); finish();                   break;
+    case "cancel":  disconnect(); cleanup();
   }
 };
 
